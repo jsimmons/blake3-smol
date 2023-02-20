@@ -295,14 +295,6 @@ fn test_compare_reference_impl() {
             hasher.update(input);
             assert_eq!(hasher.finalize(), *&expected_out[..32]);
             assert_eq!(hasher.finalize(), test_out);
-            // incremental (rayon)
-            #[cfg(feature = "rayon")]
-            {
-                let mut hasher = crate::Hasher::new();
-                hasher.update_rayon(input);
-                assert_eq!(hasher.finalize(), *array_ref!(expected_out, 0, 32));
-                assert_eq!(hasher.finalize(), test_out);
-            }
             // xof
             let mut extended = [0; OUT];
             hasher.finalize_xof().fill(&mut extended);
@@ -324,14 +316,6 @@ fn test_compare_reference_impl() {
             hasher.update(input);
             assert_eq!(hasher.finalize(), *&expected_out[..32]);
             assert_eq!(hasher.finalize(), test_out);
-            // incremental (rayon)
-            #[cfg(feature = "rayon")]
-            {
-                let mut hasher = crate::Hasher::new_keyed(&TEST_KEY);
-                hasher.update_rayon(input);
-                assert_eq!(hasher.finalize(), *&expected_out[..32]);
-                assert_eq!(hasher.finalize(), test_out);
-            }
             // xof
             let mut extended = [0; OUT];
             hasher.finalize_xof().fill(&mut extended);
@@ -354,14 +338,6 @@ fn test_compare_reference_impl() {
             hasher.update(input);
             assert_eq!(hasher.finalize(), *&expected_out[..32]);
             assert_eq!(hasher.finalize(), *&test_out[..32]);
-            // incremental (rayon)
-            #[cfg(feature = "rayon")]
-            {
-                let mut hasher = crate::Hasher::new_derive_key(context);
-                hasher.update_rayon(input);
-                assert_eq!(hasher.finalize(), *array_ref!(expected_out, 0, 32));
-                assert_eq!(hasher.finalize(), *array_ref!(test_out, 0, 32));
-            }
             // xof
             let mut extended = [0; OUT];
             hasher.finalize_xof().fill(&mut extended);

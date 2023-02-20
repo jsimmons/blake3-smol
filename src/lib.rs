@@ -327,7 +327,6 @@ impl fmt::Debug for ChunkState {
 // and for the incremental input with Hasher (though we have to be careful with
 // subtree boundaries in the incremental case). compress_subtree_wide() applies
 // several optimizations at the same time:
-// - Multithreading with Rayon.
 // - Parallel chunk hashing with SIMD.
 // - Parallel parent hashing with SIMD. Note that while SIMD chunk hashing
 //   maxes out at MAX_SIMD_DEGREE*CHUNK_LEN, parallel parent hashing continues
@@ -523,8 +522,7 @@ fn compress_subtree_wide<J: join::Join>(
     out: &mut [u8],
 ) -> usize {
     // Note that the single chunk case does *not* bump the SIMD degree up to 2
-    // when it is 1. This allows Rayon the option of multithreading even the
-    // 2-chunk case, which can help performance on smaller platforms.
+    // when it is 1.f
     if input.len() <= platform.simd_degree() * CHUNK_LEN {
         return compress_chunks_parallel(input, key, chunk_counter, flags, platform, out);
     }
@@ -550,8 +548,7 @@ fn compress_subtree_wide<J: join::Join>(
     };
     let (left_out, right_out) = cv_array.split_at_mut(degree * OUT_LEN);
 
-    // Recurse! For update_rayon(), this is where we take advantage of RayonJoin and use multiple
-    // threads.
+    // Recurse!
     let (left_n, right_n) = J::join(
         || compress_subtree_wide::<J>(left, key, chunk_counter, flags, platform, left_out),
         || compress_subtree_wide::<J>(right, key, right_chunk_counter, flags, platform, right_out),
@@ -645,8 +642,7 @@ fn hash_all_at_once<J: join::Join>(input: &[u8], key: &CVWords, flags: u8) -> Ou
 /// For output sizes other than 32 bytes, see [`Hasher::finalize_xof`] and
 /// [`OutputReader`].
 ///
-/// This function is always single-threaded. For multithreading support, see
-/// [`Hasher::update_rayon`](struct.Hasher.html#method.update_rayon).
+/// This function is always single-threaded.
 pub fn hash(input: &[u8]) -> Hash {
     hash_all_at_once::<join::SerialJoin>(input, IV, 0).root_hash()
 }
@@ -662,9 +658,7 @@ pub fn hash(input: &[u8]) -> Hash {
 /// For output sizes other than 32 bytes, see [`Hasher::new_keyed`],
 /// [`Hasher::finalize_xof`], and [`OutputReader`].
 ///
-/// This function is always single-threaded. For multithreading support, see
-/// [`Hasher::new_keyed`] and
-/// [`Hasher::update_rayon`](struct.Hasher.html#method.update_rayon).
+/// This function is always single-threaded.
 pub fn keyed_hash(key: &[u8; KEY_LEN], input: &[u8]) -> Hash {
     let key_words = platform::words_from_le_bytes_32(key);
     hash_all_at_once::<join::SerialJoin>(input, &key_words, KEYED_HASH).root_hash()
@@ -700,9 +694,7 @@ pub fn keyed_hash(key: &[u8; KEY_LEN], input: &[u8]) -> Hash {
 /// For output sizes other than 32 bytes, see [`Hasher::new_derive_key`],
 /// [`Hasher::finalize_xof`], and [`OutputReader`].
 ///
-/// This function is always single-threaded. For multithreading support, see
-/// [`Hasher::new_derive_key`] and
-/// [`Hasher::update_rayon`](struct.Hasher.html#method.update_rayon).
+/// This function is always single-threaded.
 ///
 /// [Argon2]: https://en.wikipedia.org/wiki/Argon2
 pub fn derive_key(context: &str, key_material: &[u8]) -> [u8; OUT_LEN] {
@@ -795,10 +787,6 @@ impl ops::Index<usize> for CVStack {
 /// before that crate reaches 1.0. For that reason, this crate makes no SemVer
 /// guarantees for this feature, and callers who use it should expect breaking
 /// changes between patch versions.
-///
-/// When the `rayon` Cargo feature is enabled, the
-/// [`update_rayon`](#method.update_rayon) method is available for multithreaded
-/// hashing.
 ///
 /// **Performance note:** The [`update`](#method.update) method can't take full
 /// advantage of SIMD optimizations if its input buffer is too small or oddly
@@ -951,9 +939,7 @@ impl Hasher {
     /// Add input bytes to the hash state. You can call this any number of
     /// times.
     ///
-    /// This method is always single-threaded. For multithreading support, see
-    /// [`update_rayon`](#method.update_rayon) below (enabled with the `rayon`
-    /// Cargo feature).
+    /// This method is always single-threaded.
     ///
     /// Note that the degree of SIMD parallelism that `update` can use is
     /// limited by the size of this input buffer. The 8 KiB buffer currently
@@ -964,30 +950,6 @@ impl Hasher {
     /// [`std::io::copy`]: https://doc.rust-lang.org/std/io/fn.copy.html
     pub fn update(&mut self, input: &[u8]) -> &mut Self {
         self.update_with_join::<join::SerialJoin>(input)
-    }
-
-    /// Identical to [`update`](Hasher::update), but using Rayon-based
-    /// multithreading internally.
-    ///
-    /// This method is gated by the `rayon` Cargo feature, which is disabled by
-    /// default but enabled on [docs.rs](https://docs.rs).
-    ///
-    /// To get any performance benefit from multithreading, the input buffer
-    /// needs to be large. As a rule of thumb on x86_64, `update_rayon` is
-    /// _slower_ than `update` for inputs under 128 KiB. That threshold varies
-    /// quite a lot across different processors, and it's important to benchmark
-    /// your specific use case.
-    ///
-    /// Memory mapping an entire input file is a simple way to take advantage of
-    /// multithreading without needing to carefully tune your buffer size or
-    /// offload IO. However, on spinning disks where random access is expensive,
-    /// that approach can lead to disk thrashing and terrible IO performance.
-    /// Note that OS page caching can mask this problem, in which case it might
-    /// only appear for files larger than available RAM. Again, benchmarking
-    /// your specific use case is important.
-    #[cfg(feature = "rayon")]
-    pub fn update_rayon(&mut self, input: &[u8]) -> &mut Self {
-        self.update_with_join::<join::RayonJoin>(input)
     }
 
     fn update_with_join<J: join::Join>(&mut self, mut input: &[u8]) -> &mut Self {
